@@ -1,0 +1,7 @@
+{
+  "name": "Fire Trap Multi Layer Synth",
+  "description": "A cutting-edge, multi-layer synthesizer designed for the 2030s, focusing on 'fire trap' sounds with an immersive, highly interactive, and visually stunning user interface.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
