@@ -19,7 +19,7 @@ import { AppView, ArpeggiatorMode, LayerTriggerMode, LfoShape, ScaleType, RootKe
 import AudioActivationOverlay from './components/AudioActivationOverlay';
 import { SynthProvider } from './contexts/SynthContext';
 // Flow DAW Integration
-import flowConnect from './lib/flow-connect/window-exposure';
+import flowConnect from './lib/flow-connect/integration';
 import SynthEngine from './lib/synthEngine';
 
 
@@ -28,7 +28,7 @@ const App: React.FC = () => {
   const synthEngine = useRef<SynthEngine | null>(null);
   const [isAudioActive, setIsAudioActive] = useState(false);
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
-
+  
   // --- UI State ---
   const [currentView, setCurrentView] = useState<AppView>('synthEditor');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -54,13 +54,13 @@ const App: React.FC = () => {
   const [osc2Fine, setOsc2Fine] = useState(0);
   const [osc2Level, setOsc2Level] = useState(0.6);
   const [osc2Pan, setOsc2Pan] = useState(0);
-
+  
   // FM Synthesis
   const [fmRouting, setFmRouting] = useState<FmRouting>('none');
   const [fmDepth, setFmDepth] = useState(0);
   const [fmGain, setFmGain] = useState(0.5);
   const [fmRatio, setFmRatio] = useState(1);
-
+  
   // Filter & Global Env
   const [filterCutoff, setFilterCutoff] = useState(8000);
   const [filterResonance, setFilterResonance] = useState(20);
@@ -70,7 +70,7 @@ const App: React.FC = () => {
   const [globalDecay, setGlobalDecay] = useState(0.1);
   const [globalSustain, setGlobalSustain] = useState(0.8);
   const [globalRelease, setGlobalRelease] = useState(0.2);
-
+  
   // Engine / Layer
   const [glide, setGlide] = useState(0);
   const [glideMode, setGlideMode] = useState<'linear' | 'exponential'>('linear');
@@ -100,17 +100,17 @@ const App: React.FC = () => {
   const [reverbSend, setReverbSend] = useState(0.2);
   const [delaySend, setDelaySend] = useState(0.1);
   const [masterDrive, setMasterDrive] = useState(0);
-
+  
   // --- Performance Controls State ---
   const [masterVolume, setMasterVolume] = useState(0.8);
   const [pitchBend, setPitchBend] = useState(0);
   const [timbre, setTimbre] = useState(60);
   const [fxSend, setFxSend] = useState(50);
-
+  
   // --- Preset Management State ---
   const [presets, setPresets] = useState<any[]>([]);
   const [currentPresetName, setCurrentPresetName] = useState('Init Preset');
-
+  
   // --- All Synth Parameters ---
   const synthParams = {
     osc1Shape, osc1Tune, osc1Fine, osc1Level, osc1Pan,
@@ -136,9 +136,6 @@ const App: React.FC = () => {
   }, [synthParams, isAudioActive]);
 
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
-
   const handleActivateAudio = () => {
     if (!synthEngine.current) {
       synthEngine.current = new SynthEngine();
@@ -147,50 +144,7 @@ const App: React.FC = () => {
     setIsAudioActive(true);
     setupMidi();
   };
-
-  const handleToggleRecording = async () => {
-    if (!synthEngine.current) return;
-
-    if (isRecording) {
-      // Stop Recording
-      const blob = await synthEngine.current.stopRecording();
-      setRecordedBlob(blob);
-      setIsRecording(false);
-    } else {
-      // Start Recording
-      synthEngine.current.startRecording();
-      setIsRecording(true);
-      setRecordedBlob(null);
-    }
-  };
-
-  const handleExportToFlow = async () => {
-    if (!recordedBlob || !synthEngine.current) return;
-
-    try {
-      const arrayBuffer = await recordedBlob.arrayBuffer();
-      const audioBuffer = await synthEngine.current.audioContext.decodeAudioData(arrayBuffer);
-
-      await flowConnect.shareAudio({
-        name: `Trap Synth Recording ${new Date().toLocaleTimeString()}`,
-        buffer: audioBuffer,
-        metadata: {
-          bpm,
-          key: scaleRoot,
-          scale: scaleType,
-          source: 'Flow Trap Synth'
-        }
-      });
-
-      // Optional: Show success feedback
-      console.log('Exported to Flow!');
-      setRecordedBlob(null); // Clear after export
-    } catch (err) {
-      console.error('Failed to export to Flow:', err);
-    }
-  };
-
-
+  
   // --- WebMIDI Setup ---
   const setupMidi = async () => {
     if (navigator.requestMIDIAccess) {
@@ -199,21 +153,21 @@ const App: React.FC = () => {
         const inputs = midiAccess.inputs.values();
         for (const input of inputs) {
           input.onmidimessage = (message) => {
-            const [command, note, velocity] = message.data;
-            if (!synthEngine.current) return;
+             const [command, note, velocity] = message.data;
+             if (!synthEngine.current) return;
+             
+             // Note notes are MIDI numbers. We need to convert to Note Names (e.g. 60 -> C4)
+             const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+             const octave = Math.floor(note / 12) - 1;
+             const noteName = `${notes[note % 12]}${octave}`;
 
-            // Note notes are MIDI numbers. We need to convert to Note Names (e.g. 60 -> C4)
-            const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-            const octave = Math.floor(note / 12) - 1;
-            const noteName = `${notes[note % 12]}${octave}`;
-
-            if (command === 144 && velocity > 0) { // Note On
-              handleNoteOn(noteName);
-              synthEngine.current.noteOn(noteName);
-            } else if (command === 128 || (command === 144 && velocity === 0)) { // Note Off
-              handleNoteOff(noteName);
-              synthEngine.current.noteOff(noteName);
-            }
+             if (command === 144 && velocity > 0) { // Note On
+                handleNoteOn(noteName);
+                synthEngine.current.noteOn(noteName);
+             } else if (command === 128 || (command === 144 && velocity === 0)) { // Note Off
+                handleNoteOff(noteName);
+                synthEngine.current.noteOff(noteName);
+             }
           };
         }
       } catch (e) {
@@ -243,61 +197,61 @@ const App: React.FC = () => {
   const randomizeParams = () => {
     const r = Math.random;
     const shapes = ['sawtooth', 'square', 'sine', 'triangle'] as const;
-
+    
     setOsc1Shape(shapes[Math.floor(r() * 4)]);
     setOsc1Tune(Math.floor(r() * 24) - 12);
     setOsc2Shape(shapes[Math.floor(r() * 4)]);
     setOsc2Tune(Math.floor(r() * 24) - 12);
-
+    
     setFilterCutoff(200 + r() * 10000);
     setFilterResonance(r() * 80);
     setFilterDrive(r() * 50);
-
+    
     setGlobalAttack(r() * 0.5);
     setGlobalDecay(r() * 1.0);
-
+    
     setReverbSend(r() * 0.6);
     setDelaySend(r() * 0.5);
     setMasterDrive(r() * 0.4);
-
+    
     setLfo1Rate(r() * 80);
-
+    
     // FM Randomization
     setFmDepth(r() * 100);
     setFmGain(r());
     setFmRouting(['none', '1->2', '2->1'][Math.floor(r() * 3)] as FmRouting);
   };
-
+  
   // --- Sound Bank Loading Logic ---
   const handleLoadBank = (bankName: string) => {
-    // Map bank names to presets
-    const name = bankName.toLowerCase();
-
-    if (name.includes('inferno 808')) {
-      setOsc1Shape('sine'); setOsc1Tune(-12); setOsc1Level(0.9);
-      setBass808Level(1.0); setBass808Drive(0.8); setBass808Decay(80);
-      setFilterCutoff(400); setFilterDrive(60);
-      setMasterDrive(0.5);
-    } else if (name.includes('molten lead')) {
-      setOsc1Shape('sawtooth'); setOsc2Shape('square'); setOsc2Tune(7);
-      setFilterCutoff(8000); setFilterResonance(60);
-      setGlide(0.1); setDelaySend(0.4); setReverbSend(0.4);
-      setFmRouting('1->2'); setFmDepth(30); setFmRatio(1);
-    } else if (name.includes('ashen pad')) {
-      setOsc1Shape('triangle'); setOsc2Shape('sine'); setOsc2Fine(10);
-      setGlobalAttack(1.5); setGlobalRelease(2.0);
-      setFilterCutoff(2000); setReverbSend(0.8);
-    } else if (name.includes('trap ghost')) {
-      setOsc1Shape('sine'); setOsc2Shape('triangle'); setOsc1Tune(12);
-      setLfo1Rate(60); setFilterCutoff(3000);
-      setIsArpeggiatorOn(true); setArpeggiatorRate(60);
-    } else {
-      // Default Random
-      randomizeParams();
-    }
-
-    setCurrentPresetName(bankName);
-    setCurrentView('synthEditor');
+      // Map bank names to presets
+      const name = bankName.toLowerCase();
+      
+      if (name.includes('inferno 808')) {
+          setOsc1Shape('sine'); setOsc1Tune(-12); setOsc1Level(0.9);
+          setBass808Level(1.0); setBass808Drive(0.8); setBass808Decay(80);
+          setFilterCutoff(400); setFilterDrive(60);
+          setMasterDrive(0.5);
+      } else if (name.includes('molten lead')) {
+          setOsc1Shape('sawtooth'); setOsc2Shape('square'); setOsc2Tune(7);
+          setFilterCutoff(8000); setFilterResonance(60);
+          setGlide(0.1); setDelaySend(0.4); setReverbSend(0.4);
+          setFmRouting('1->2'); setFmDepth(30); setFmRatio(1);
+      } else if (name.includes('ashen pad')) {
+          setOsc1Shape('triangle'); setOsc2Shape('sine'); setOsc2Fine(10);
+          setGlobalAttack(1.5); setGlobalRelease(2.0);
+          setFilterCutoff(2000); setReverbSend(0.8);
+      } else if (name.includes('trap ghost')) {
+          setOsc1Shape('sine'); setOsc2Shape('triangle'); setOsc1Tune(12);
+          setLfo1Rate(60); setFilterCutoff(3000);
+          setIsArpeggiatorOn(true); setArpeggiatorRate(60);
+      } else {
+          // Default Random
+          randomizeParams();
+      }
+      
+      setCurrentPresetName(bankName);
+      setCurrentView('synthEditor');
   };
 
   const renderContent = () => {
@@ -319,21 +273,21 @@ const App: React.FC = () => {
             osc2Shape={osc2Shape} setOsc2Shape={setOsc2Shape} osc2Tune={osc2Tune} setOsc2Tune={setOsc2Tune}
             osc2Fine={osc2Fine} setOsc2Fine={setOsc2Fine} osc2Level={osc2Level * 100} setOsc2Level={(v) => setOsc2Level(v / 100)}
             osc2Pan={osc2Pan} setOsc2Pan={setOsc2Pan}
-
+            
             // FM Synthesis
             fmRouting={fmRouting} setFmRouting={setFmRouting}
             fmDepth={fmDepth} setFmDepth={setFmDepth}
             fmGain={fmGain * 100} setFmGain={(v) => setFmGain(v / 100)}
             fmRatio={fmRatio} setFmRatio={setFmRatio}
-
+            
             // Filter & Env
             filterCutoff={filterCutoff} setFilterCutoff={setFilterCutoff} filterResonance={filterResonance} setFilterResonance={setFilterResonance}
             filterEnvAmt={filterEnvAmt} setFilterEnvAmt={setFilterEnvAmt} filterDrive={filterDrive} setFilterDrive={setFilterDrive}
             globalAttack={globalAttack * 1000} setGlobalAttack={(v) => setGlobalAttack(v / 1000)} globalDecay={globalDecay * 1000} setGlobalDecay={(v) => setGlobalDecay(v / 1000)}
             globalSustain={globalSustain * 100} setGlobalSustain={(v) => setGlobalSustain(v / 100)} globalRelease={globalRelease * 1000} setGlobalRelease={(v) => setGlobalRelease(v / 1000)}
-
+            
             // Engine / Layer
-            layerMix={layerMix * 100} setLayerMix={(v) => setLayerMix(v / 100)}
+            layerMix={layerMix * 100} setLayerMix={(v) => setLayerMix(v / 100)} 
             glide={glide * 1000} setGlide={(v) => setGlide(v / 1000)}
             glideMode={glideMode} setGlideMode={setGlideMode}
             glideCurve={glideCurve} setGlideCurve={setGlideCurve}
@@ -373,7 +327,7 @@ const App: React.FC = () => {
     <SynthProvider value={synthEngine.current}>
       <div className="flex flex-col h-screen antialiased text-slate-200">
         {!isAudioActive && <AudioActivationOverlay onActivate={handleActivateAudio} />}
-
+        
         <Header toggleSidebar={toggleSidebar} onRandomize={randomizeParams} />
         <div className="flex flex-1 overflow-hidden">
           <Sidebar
@@ -386,48 +340,48 @@ const App: React.FC = () => {
         </div>
 
         <footer className="glass-panel p-4 flex flex-col shadow-inner border-t border-slate-700 z-10 sticky bottom-0 bg-black/80 backdrop-blur-xl">
-          {/* Music Theory Toolbar */}
-          <div className="flex items-center justify-between mb-4 px-2">
-            <div className="flex items-center space-x-6">
-              {/* Arp Toggle */}
-              <button
-                onClick={() => setIsArpeggiatorOn(!isArpeggiatorOn)}
-                className={`flex items-center space-x-2 px-3 py-1 rounded-full border transition-all ${isArpeggiatorOn ? 'bg-orange-500/20 border-orange-500 text-orange-400 shadow-orange-glow' : 'border-white/10 text-slate-500'}`}
-              >
-                <div className={`w-2 h-2 rounded-full ${isArpeggiatorOn ? 'bg-orange-500' : 'bg-slate-600'}`}></div>
-                <span className="text-[10px] font-bold uppercase tracking-widest">ARP</span>
-              </button>
+           {/* Music Theory Toolbar */}
+           <div className="flex items-center justify-between mb-4 px-2">
+              <div className="flex items-center space-x-6">
+                 {/* Arp Toggle */}
+                 <button 
+                    onClick={() => setIsArpeggiatorOn(!isArpeggiatorOn)}
+                    className={`flex items-center space-x-2 px-3 py-1 rounded-full border transition-all ${isArpeggiatorOn ? 'bg-orange-500/20 border-orange-500 text-orange-400 shadow-orange-glow' : 'border-white/10 text-slate-500'}`}
+                 >
+                    <div className={`w-2 h-2 rounded-full ${isArpeggiatorOn ? 'bg-orange-500' : 'bg-slate-600'}`}></div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest">ARP</span>
+                 </button>
 
-              {/* Key Selector */}
-              <div className="flex items-center space-x-2">
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Root</span>
-                <select
-                  value={scaleRoot}
-                  onChange={(e) => setScaleRoot(e.target.value as RootKey)}
-                  className="bg-white/5 border border-white/10 rounded-md text-xs font-bold text-cyan-300 px-2 py-1 outline-none focus:border-cyan-500"
-                >
-                  {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map(k => <option key={k} value={k}>{k}</option>)}
-                </select>
+                 {/* Key Selector */}
+                 <div className="flex items-center space-x-2">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Root</span>
+                    <select 
+                       value={scaleRoot} 
+                       onChange={(e) => setScaleRoot(e.target.value as RootKey)}
+                       className="bg-white/5 border border-white/10 rounded-md text-xs font-bold text-cyan-300 px-2 py-1 outline-none focus:border-cyan-500"
+                    >
+                       {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                 </div>
+
+                 {/* Scale Selector */}
+                 <div className="flex items-center space-x-2">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Scale</span>
+                     <select 
+                       value={scaleType} 
+                       onChange={(e) => setScaleType(e.target.value as ScaleType)}
+                       className="bg-white/5 border border-white/10 rounded-md text-xs font-bold text-purple-300 px-2 py-1 outline-none focus:border-purple-500"
+                    >
+                       {['Chromatic', 'Major', 'Minor', 'Harmonic Minor', 'Phrygian', 'Dorian', 'Lydian', 'Mixolydian', 'Locrian'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                 </div>
               </div>
-
-              {/* Scale Selector */}
-              <div className="flex items-center space-x-2">
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Scale</span>
-                <select
-                  value={scaleType}
-                  onChange={(e) => setScaleType(e.target.value as ScaleType)}
-                  className="bg-white/5 border border-white/10 rounded-md text-xs font-bold text-purple-300 px-2 py-1 outline-none focus:border-purple-500"
-                >
-                  {['Chromatic', 'Major', 'Minor', 'Harmonic Minor', 'Phrygian', 'Dorian', 'Lydian', 'Mixolydian', 'Locrian'].map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+              
+              {/* Global Transport Info */}
+              <div className="flex items-center space-x-4 text-xs font-mono text-slate-500">
+                  <span>BPM: <span className="text-white">{bpm}</span></span>
               </div>
-            </div>
-
-            {/* Global Transport Info */}
-            <div className="flex items-center space-x-4 text-xs font-mono text-slate-500">
-              <span>BPM: <span className="text-white">{bpm}</span></span>
-            </div>
-          </div>
+           </div>
 
           <div className="flex flex-col md:flex-row items-center justify-between">
             <div className="flex-shrink-0 mb-4 md:mb-0 md:mr-6">
@@ -438,11 +392,11 @@ const App: React.FC = () => {
               />
             </div>
             <div className="flex items-center justify-center gap-x-8 flex-1">
-              <Slider label="Pitch Bend" min={-12} max={12} step={1} initialValue={pitchBend} onChange={setPitchBend} accentColor="from-blue-500 to-indigo-400" />
-              <div className="flex flex-wrap justify-center md:justify-end gap-x-8 gap-y-4 md:gap-x-12">
-                <KnobControl label="Timbre" min={0} max={100} step={1} initialValue={timbre} onChange={setTimbre} accentColor="from-blue-500 to-cyan-400" />
-                <KnobControl label="FX Send" min={0} max={100} step={1} initialValue={fxSend} onChange={setFxSend} accentColor="from-red-500 to-pink-400" />
-              </div>
+               <Slider label="Pitch Bend" min={-12} max={12} step={1} initialValue={pitchBend} onChange={setPitchBend} accentColor="from-blue-500 to-indigo-400" />
+               <div className="flex flex-wrap justify-center md:justify-end gap-x-8 gap-y-4 md:gap-x-12">
+                  <KnobControl label="Timbre" min={0} max={100} step={1} initialValue={timbre} onChange={setTimbre} accentColor="from-blue-500 to-cyan-400" />
+                  <KnobControl label="FX Send" min={0} max={100} step={1} initialValue={fxSend} onChange={setFxSend} accentColor="from-red-500 to-pink-400" />
+               </div>
             </div>
             <div className="flex items-center gap-x-6 ml-auto pl-6 border-l border-slate-700">
               <div className="flex items-center gap-x-3">
